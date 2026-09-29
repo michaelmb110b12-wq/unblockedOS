@@ -1,0 +1,7 @@
+build:
+  type: docker
+  dockerfile: Dockerfile
+
+run:
+  command: npm start
+  port: 3000
