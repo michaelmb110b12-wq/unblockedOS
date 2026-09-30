@@ -1,0 +1,20 @@
+build:
+  system: docker
+  min_cpu: 0.25
+  max_cpu: 0.5
+  min_memory: 512
+  max_memory: 2048
+
+dockerfile_path: "./Dockerfile"
+working_directory: "/"
+build_context_directory: "/"
+start_command: "npm start"
+
+scaling:
+  min_replicas: 1
+  max_replicas: 1
+
+health_check:
+  type: http
+  http_path: "/health"
+  interval_in_seconds: 30

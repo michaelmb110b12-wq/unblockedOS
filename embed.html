@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Loading...</title>
+
+  <script src="./runtime/scramjet/scramjet.all.js"></script>
+
+  <script src="./runtime/baremux/index.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #050505;
+      font-family: "Outfit", "Segoe UI", sans-serif;
+    }
+
+    /* Full-screen proxied content */
+    #frame {
+      display: none;
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #fff;
+    }
+
+    /* Centered status overlay shown while proxy boots */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      background: #050505;
+      transition: opacity 0.4s ease;
+    }
+
+    #overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 2.5px solid rgba(255, 183, 178, 0.2);
+      border-top-color: #ffb7b2;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #status-text {
+      font-size: 0.85rem;
+      color: #a0a0aa;
+      letter-spacing: 1px;
+    }
+
+    /* Error state */
+    #overlay.error .spinner { display: none; }
+
+    #overlay.error #status-text {
+      color: #ff6b6b;
+      font-size: 0.9rem;
+      text-align: center;
+      max-width: 380px;
+      line-height: 1.6;
+    }
+
+    #error-icon {
+      display: none;
+      color: #ff6b6b;
+    }
+
+    #overlay.error #error-icon { display: block; }
+
+    #retry-btn {
+      display: none;
+      margin-top: 8px;
+      padding: 9px 24px;
+      background: rgba(255,107,107,0.12);
+      border: 1px solid rgba(255,107,107,0.35);
+      border-radius: 20px;
+      color: #ff6b6b;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #retry-btn:hover { background: rgba(255,107,107,0.22); }
+    #overlay.error #retry-btn { display: block; }
+  </style>
+
+</head>
+<body>
+
+  <div id="overlay">
+    <!-- Error state icon (hidden until needed) -->
+    <svg id="error-icon" xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+      <line x1="12" y1="9" x2="12" y2="13"/>
+      <line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+
+```
+<div class="spinner"></div>
+<span id="status-text">Connecting...</span>
+<button id="retry-btn" onclick="location.reload()">Try again</button>
+```
+
+  </div>
+
+  <iframe
+    id="frame"
+    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-pointer-lock"
+    allow="pointer-lock; fullscreen; autoplay"
+  ></iframe>
+
+  <script>
+    // Read the target URL from ?url= query parameter.
+    // Example usage: /embed.html?url=https://google.com
+    var params    = new URLSearchParams(location.search);
+    var targetRaw = params.get('url');
+
+    // Derive paths dynamically so embed.html works from any deployment URL
+    // without needing to be updated.
+    var basePath    = location.pathname.replace(/[^\/]*$/, '');
+    var scramPrefix = basePath + 'scram/';
+
+    var overlay    = document.getElementById('overlay');
+    var statusText = document.getElementById('status-text');
+    var frame      = document.getElementById('frame');
+
+    function setStatus(msg) {
+      statusText.textContent = msg;
+    }
+
+    function showError(msg) {
+      setStatus(msg || 'Something went wrong. Check the console for details.');
+      overlay.classList.add('error');
+    }
+
+    function resolveUrl(raw) {
+      if (!raw) { return null; }
+      raw = raw.trim();
+      if (raw.startsWith('http://') || raw.startsWith('https://')) { return raw; }
+      if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(raw)) { return 'https://' + raw; }
+      return 'https://duckduckgo.com/?q=' + encodeURIComponent(raw);
+    }
+
+    function waitForRuntime(ms) {
+      ms = ms || 10000;
+      return new Promise(function(resolve, reject) {
+        var t = Date.now();
+        (function tick() {
+          var ok = typeof $scramjetLoadController === 'function'
+                && typeof BareMux !== 'undefined'
+                && typeof BareMux.BareMuxConnection === 'function';
+          if (ok) { return resolve(); }
+          if (Date.now() - t > ms) { return reject(new Error('Proxy runtime did not load within ' + (ms / 1000) + 's')); }
+          setTimeout(tick, 100);
+        }());
+      });
+    }
+
+    function run() {
+      var url = resolveUrl(targetRaw);
+
+      if (!url) {
+        showError('No URL provided.\n\nUsage: /embed.html?url=https://example.com');
+        return;
+      }
+
+      setStatus('Loading runtime...');
+
+      waitForRuntime()
+        .then(function() {
+          setStatus('Registering service worker...');
+          return navigator.serviceWorker.register('./sw.js', { scope: basePath || '/' });
+        })
+        .then(function() {
+          return navigator.serviceWorker.ready;
+        })
+        .then(function() {
+          setStatus('Setting up transport...');
+          var conn  = new BareMux.BareMuxConnection('./runtime/baremux/worker.js');
+          var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+          var wisp  = proto + '://' + location.host + '/ws/';
+          return conn.setTransport('./runtime/libcurl/index.mjs', [{ wisp: wisp }]);
+        })
+        .then(function() {
+          setStatus('Starting proxy...');
+          var SC         = $scramjetLoadController();
+          var controller = new SC.ScramjetController({
+            prefix: scramPrefix,
+            files: {
+              wasm: './runtime/scramjet/scramjet.wasm.wasm',
+              all:  './runtime/scramjet/scramjet.all.js',
+              sync: './runtime/scramjet/scramjet.sync.js'
+            },
+            flags: { sourcemaps: false }
+          });
+          return controller.init().then(function() { return controller; });
+        })
+        .then(function(controller) {
+          // Proxy is ready - load the target URL
+          var proxied = controller.encodeUrl(url);
+          frame.src   = proxied;
+
+          // Once the frame starts loading, fade out the overlay
+          frame.onload = function() {
+            frame.style.display = 'block';
+            overlay.classList.add('hidden');
+            setTimeout(function() { overlay.style.display = 'none'; }, 450);
+          };
+        })
+        .catch(function(err) {
+          console.error('[embed] proxy init failed:', err);
+          showError('Proxy failed to start.\n\n' + (err.message || String(err)));
+        });
+    }
+
+    run();
+  </script>
+
+</body>
+</html>
