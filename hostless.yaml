@@ -1,0 +1,14 @@
+# Hostless configuration
+build:
+  system: docker
+
+dockerfile_path: "./Dockerfile"
+start_command: "npm start"
+
+scaling:
+  min_replicas: 1
+  max_replicas: 1
+
+health_check:
+  type: tcp
+  interval_in_seconds: 10
